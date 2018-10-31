@@ -63,7 +63,7 @@ SetDefaultValue, do_smooth, 1                                             ; set 
 SetDefaultValue, do_plot, 1                                               ; set to 1 to plot progress (slightly slows things down)
 SetDefaultValue, do_bad, 1                                                ; set to 1 to also make a couple "bad frame" images
 SetDefaultValue, smooth_width, 6                                          ; width of smoothing kernel if do_smooth = 1
-SetDefaultValue, stddev_cutoff, 1.25                                       ; only use Mercury frames with stddev > (median(std_devs) - [stddev_cutoff]_sigma), these are defined as "good" 
+SetDefaultValue, stddev_cutoff, 2.                                        ; only use Mercury frames with stddev > (median(std_devs) - [stddev_cutoff]_sigma), these are defined as "good" 
 
 mercury_dir   = 'Y:\obs_18\Perkins_RIPS_March\15\renamed\'                ; directory with Mercury FITS file(s)
 dark_dir      = 'Y:\obs_18\Perkins_RIPS_March\14\Carl_Keep\'              ; directory with dark file
@@ -87,8 +87,6 @@ count_factor  = 1.e4                                                      ; this
 outdir        =  Mercury_dir + 'Processed\'                               ; output directory
 nfiles        =  n_elements(Mercury_file)                                 ; # of different Mercury kinetic frames
 
-cgloadct, ct;, /reverse
-
 ; =====================================================================================================================
 ; Find display size, set window defaults, reset plotting variables just in case
 ; =====================================================================================================================
@@ -97,6 +95,7 @@ winpos_x      = ss(0)/2                                                   ; defa
 winpos_y      = 0                                                         ; default initial y window location
 !p.multi      = 0.
 !p.position   = 0.
+cgloadct, ct
 
 
 
