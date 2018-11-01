@@ -1,7 +1,7 @@
 pro RIPS_Mercury_Perkins_v03, PART=part, NIGHT=night
 
-; **********************************************************************************************************************
-; **********************************************************************************************************************
+; *********************************************************************************************************************
+; *********************************************************************************************************************
 ; Routine to extract Na emission from spectral scans over Mercury's disk with Perkins/RIPS in order to create a 2-D
 ; image of Na above and near Mercury's disk.
 ; 
@@ -33,10 +33,11 @@ pro RIPS_Mercury_Perkins_v03, PART=part, NIGHT=night
 ;   width          - median smoothing width to get local background reference (for pixels above thresh; Default=5)
 ; 
 ; Created:  18 Oct 2018 - copied from RIPS_Mercury_AEOS_v03.pro to start (CS and LM)
-; Edits:    25 Oct 2018 - rennamed to "v02", cleaned up with the plan to leave v02 as a minimal, yet still hard-coded
+; Edits:    25 Oct 2018 - renamed to "v02", cleaned up with the plan to leave v02 as a minimal, yet still hard-coded
 ;                         version, and then to improve the automation in v03 (plus add additional improvements) (LM)    
 ;           30 Oct 2018 - changed approach to reference images, we now use either a pre-generated reference from
 ;                         RIPS_Mercury_Perkins_reference.pro or from a previous run (LM)
+;            1 Nov 2018 - renamed to "v03" as part of integration with GitHub (LM) 
 ; *********************************************************************************************************************
 ; =====================================================================================================================
 ; Define variables
@@ -47,7 +48,7 @@ SetDefaultValue, framerate, 30                                            ; defa
 SetDefaultValue, thresh, 12                                               ; hotpixel removal threshold (sigma above background)
 SetDefaultValue, width, 5                                                 ; Median smoothing width to get local background reference (for pixels above thresh) 
 SetDefaultValue, minfac, 0.9                                              ; maximum factor to apply to reference spectrum for Na emission extraction
-SetDefaultValue, maxfac, 1.3                                              ; minimum factor to apply to reference spectrum for Na emission extraction
+SetDefaultValue, maxfac, 1.4                                              ; minimum factor to apply to reference spectrum for Na emission extraction
 SetDefaultValue, dfac, 0.01                                               ; factor increment for minfac->maxfac
 SetDefaultValue, ct, 20                                                   ; default color table
 SetDefaultValue, max_spec, 1550.  ;~1900 or 1750 when smoothed             ; partial hack --> the max value of the spectral Na cube after averaging (used for "prettier" movies)
@@ -70,8 +71,8 @@ dark_dir      = 'Y:\obs_18\Perkins_RIPS_March\14\Carl_Keep\'              ; dire
 flat_dir      = 'Y:\obs_18\Perkins_RIPS_March\15\'                        ; directory with flat file
 sky_dir       = 'Y:\obs_18\Perkins_RIPS_March\15\'                        ; directory with sky file
 Mercury_file  = 'Mercury_Na_' + strfix(['791','792','793','794','796','798','800','803']) + '.fits'  ; Mercury kinetic series to use (note that these have been renamed from the "RIPS1_..." defaults)
-;Mercury_file  = 'Mercury_Na_796.fits' ; TEMP for faster testing
-ref_file      = 'Mercury_ref_image_31Oct2018.fits'                        ; a reference image of Mercury (combined from "good" Mercury data) -- to be used for finding alignments below
+Mercury_file  = 'Mercury_Na_796.fits' ; TEMP for faster testing
+ref_file      = 'Mercury_ref_800frames.fits'                              ; a reference image of Mercury (combined from "good" Mercury data) -- to be used for finding alignments below
 sky_file      = 'RIPS1_Thu Mar 15 2018_01.12.12_785.fits'                 ; sky frame
 dark_file     = 'Dark.fits'                                               ; dark frame
 flat_file     = 'Flat_NaSpectra_624slitwidth_NaND1imaging1.fits'          ; flat frame
@@ -167,44 +168,37 @@ if part eq 1 or part eq 99 then begin ;Find the centroids by cross-correlation w
         acre, reform(ireference(*,*,0)), reference, thresh, width
     endelse
 
-    ; Find indicies of the pixels under the slit in the imaging channel
+    ; Find indices of the pixels under the slit in the imaging channel
     junk = min(total(flat, 2), slit_center)                         ; roughly find the slit center
     h = histogram(flat, binsize = .05, REVERSE_INDICES=ri)          ; bin the flat into 0.05 bins
-    slit_indicies = ri[ri[0]:ri[9]-1]                               ; find inidices of pixels in the lowest few bins of the flat's histogram 
-    slit_indicies = array_indices(flat, slit_indicies)              ; convert into x & y indices
-    keep = where(abs(slit_indicies[0,*] - slit_center) lt 10, /Null); keep only inidicees within 10 pixels of slit center       
-    slit_indicies = slit_indicies[*,keep]
+    slit_indices = ri[ri[0]:ri[9]-1]                               ; find inidices of pixels in the lowest few bins of the flat's histogram 
+    slit_indices = array_indices(flat, slit_indices)              ; convert into x & y indices
+    keep = where(abs(slit_indices[0,*] - slit_center) lt 10, /Null); keep only inidicees within 10 pixels of slit center       
+    slit_indices = slit_indices[*,keep]
     dummy = flat
-    dummy[ slit_indicies[0,*], slit_indicies[1,*] ] = max(flat)     ; show the location of pixels fully under the slit.
-    cgimage, hist_equal(dummy), title='flat'
-
-;    reference[ slit_indicies[0,*], slit_indicies[1,*] ] = !values.F_Nan  ; define slit pixels as NaN
-;    r1 = reference
-;    r2 = reference
-;    fill_missing, r1, !Values.F_Nan, 1
-;    fill_missing_rand, r2, !Values.F_Nan, 1
+    dummy[ slit_indices[0,*], slit_indices[1,*] ] = max(flat)     ; show the location of pixels fully under the slit.
+    if do_plot then cgimage, hist_equal(dummy), title='flat'
 
     ; Find slit width -- NOTE that we need to replace these next few lines with Carl's updated slit method (30 Oct 2018, LM)
-    xpoly = poly_fit(indgen(n_elements(total(flat,2))),total(flat,2),3,yfit=yfit)   ; fit the 3D trend across the flat
-    stddev_yfit = stddev(total(flat,2) - yfit)                            ; find standard deviation of detrended x behavior
-    xslit_pixels = where( (total(flat,2) - yfit) le -stddev_yfit )        ; find x pixels more than 1 stddev below mean
-    slit_width = n_elements(xslit_pixels)/2 - 1                           ; define slit width 
-    xslit     = (where( total(flat,2) eq min(total(flat,2)) ))[0]             ; the "middle" of the slit
-    if do_plot then begin
-        cgimage, hist_equal(flat), /axes, title='flat'
-        for i = -1, 1, 2 do cgoplot, [1,1]*(xslit+i*slit_width), !Y.Crange
-        wait, 2.
-    endif
+;    xpoly = poly_fit(indgen(n_elements(total(flat,2))),total(flat,2),3,yfit=yfit)   ; fit the 3D trend across the flat
+;    stddev_yfit = stddev(total(flat,2) - yfit)                            ; find standard deviation of detrended x behavior
+;    xslit_pixels = where( (total(flat,2) - yfit) le -stddev_yfit )        ; find x pixels more than 1 stddev below mean
+;    slit_width = n_elements(xslit_pixels)/2 - 1                           ; define slit width 
+;    xslit     = (where( total(flat,2) eq min(total(flat,2)) ))[0]             ; the "middle" of the slit
+;    if do_plot then begin
+;        cgimage, hist_equal(flat), /axes, title='flat'
+;        for i = -1, 1, 2 do cgoplot, [1,1]*(xslit+i*slit_width), !Y.Crange
+;        wait, 2.
+;    endif
 
     ; Begin loop through each frame, calculate alignment
     wset, 1
     cgimage, reference, /axes, title='Reference image for alignment'
     for i = 0, s[2]-1 do begin
         iframe = (reform(imaging_cube[*,*,i]) - dark) / flat              ; "raw" imaging frame
-        iframe[ slit_indicies[0,*], slit_indicies[1,*] ] = !values.F_Nan
+        iframe[ slit_indices[0,*], slit_indices[1,*] ] = !values.F_Nan    ; define slit pixels as NaN
         acre, iframe, frame, thresh, width                                ; clean any hot pixels
-        frame[xslit-slit_width:xslit+slit_width,*] = !values.F_Nan        ; define slit pixels as NaN
-        stop
+;        frame[xslit-slit_width:xslit+slit_width,*] = !values.F_Nan        ; define slit pixels as NaN
         fill_missing_rand, frame, !values.F_Nan, 1                        ; replace slit pixels based on nearby pixels
         if do_smooth then begin                                           ; set up bandpass filter to aid image alignment
           frame_bandpass = bandpass_filter(smooth(frame,smooth_width,/edge_truncate), 0., 0.15, /butterworth)
@@ -258,9 +252,6 @@ if part eq 1 or part eq 99 then begin ;Find the centroids by cross-correlation w
     ; Now loop over good frames to align everything
     for i = 0, n_elements(good_frames)-1 do begin
         iframe = (reform(imaging_cube[*,*,i]) - dark) / flat              ; "raw" imaging frame
-; 30 Oct 2018 (LM): commented out next two lines for now, as I think we'd rather keep the raw frames (we can always fill in the slit pixels again later)
-;        iframe[xslit-slit_width:xslit+slit_width,*] = !values.F_Nan       ; define slit pixels as NaN
-;        fill_missing_rand, iframe, !values.F_Nan, 1                       ; interpolate over slit
         acre, iframe, frame, thresh, width                                ; clean any hot pixels
         specframe = (reform(spectra_cube[*,*,i]))                         ; "raw" spectral frame -- missing specdark and specflat ??
         aligned_imaging_cube[*,*,i] = shift(frame, [shift_array[i,*]])    ; apply shift_array values to imaging frame
@@ -268,7 +259,8 @@ if part eq 1 or part eq 99 then begin ;Find the centroids by cross-correlation w
         img_frame = reform(frame(min(xrange):max(xrange),min(yrange):max(yrange))) ; extract just the image part of the frame
         std_devs(i) = stddev(img_frame)                                   ; higher std dev --> sharper image (TEMP, we can do better!)
     endfor    
-    save, shift_array, aligned_imaging_cube, aligned_spectra_cube, std_devs, xslit, slit_width, filename = outdir + 'shift_array.sav'
+;    save, shift_array, aligned_imaging_cube, aligned_spectra_cube, std_devs, xslit, slit_width, filename = outdir + 'shift_array.sav'
+    save, shift_array, aligned_imaging_cube, aligned_spectra_cube, std_devs, slit_indices, filename = outdir + 'shift_array.sav'
     beep
 endif
 
@@ -310,7 +302,7 @@ if part eq 2 or part eq 99 then begin
         reference = reference / flat                                      ; this is our dark and flat corrected spectral reference
 
         ; Now find the xoffset in the reference spectrum (likely due to slightly different grating angles)
-        y_Mercury       = where( total(frame,1)-min(total(frame,1)) ge 0.5*max(total(frame,1)) )    ; FWHM range of mercury
+        y_Mercury       = where( total(frame,1)-min(total(frame,1)) ge 0.5*(max(total(frame,1))-min(total(frame,1))) ) ; FWHM range of mercury
         frame_spectrum  = total(frame(*,y_Mercury),2)                     ; the spectrum for this frame, integrated over spatial extent of Mercury disk
         ref_spectrum    = total(reference(*,y_Mercury), 2)                ; reference spectrum, integrated over spatial extent of Mercury disk
         frame_D2_x      = ( where( frame_spectrum(0:s[0]/2) eq min(frame_spectrum(0:s[0]/2))) ) [0]    ; hack (we only want the D2 line, so we just check the 1st half of spectrum)
@@ -362,7 +354,9 @@ if part eq 2 or part eq 99 then begin
                     fac_diffs(ifac) = abs( mean_vals(0) - mean(mean_vals(1:2)) )            
                 endfor ;ifac
                 best_fac = factors(( where( fac_diffs eq min(fac_diffs) ) )[0])
-                print, 'Frame ' + strfix(i) + ', best_fac = ' + strfix(best_fac)          ; print out so we know if min/maxfac are reasonable
+                if best_fac eq maxfac or best_fac eq minfac then $
+                  print, 'Frame ' + strfix(i) + ', best_fac = ' + strfix(best_fac) + ' -- END OF FAC RANGE!' $  ; print out so we know if min/maxfac are reasonable
+                  else print, 'Frame ' + strfix(i) + ', best_fac = ' + strfix(best_fac)   ; print out so we know if min/maxfac are reasonable
                 just_exosphere = frame - scaled_reference * best_fac
             endif
         
@@ -510,7 +504,8 @@ if part eq 4 or part eq 99 then begin
     ; Fill the slit pixels (for nicer plotting outputs)
     for iframe = 0, ssc[2]-1 do begin
         frame      = reform(aligned_imaging_cube(*,*,iframe))             ; extract individual frame
-        frame[xslit-slit_width:xslit+slit_width,*] = !values.F_Nan        ; define slit pixels as NaN
+        frame[ slit_indices[0,*], slit_indices[1,*] ] = !values.F_Nan     ; define slit pixels as NaN
+;        frame[xslit-slit_width:xslit+slit_width,*] = !values.F_Nan        ; define slit pixels as NaN
         fill_missing_rand, frame, !values.F_Nan, 1                        ; replace slit pixels based on nearby pixels
         aligned_imaging_cube[*,*,iframe] = frame                          ; update with "fixed" frame 
     endfor
